@@ -6,6 +6,8 @@ work landed, not necessarily when a version was tagged.
 
 ## [Unreleased]
 
+## [2.4.1]
+
 ### Fixed
 
 - **Quality scoring contacted HuggingFace on every start, even with the model
