@@ -3,4 +3,4 @@
 # Bump this before tagging a new release (git tag vX.Y.Z) -- nothing derives
 # it automatically from the tag, so it's the one manual step release.yml
 # doesn't handle for you.
-__version__ = "2.4.1"
+__version__ = "2.5.0"

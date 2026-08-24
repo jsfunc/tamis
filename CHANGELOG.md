@@ -6,6 +6,54 @@ work landed, not necessarily when a version was tagged.
 
 ## [Unreleased]
 
+## [2.5.0]
+
+### Changed
+
+- **The sharpness score now measures focus rather than fine detail, and is
+  computed a completely different way.** The old score was the variance of
+  the image Laplacian — edge energy — which measures how much fine texture a
+  frame contains. That is not focus, and it confounds the two whenever scene
+  contrast varies. Checked against hand-labelled photos, an out-of-focus shot
+  of a projected slide (white text on near-black: enormous contrast across
+  wide soft edges) scored *higher* than a correctly focused close-up of a
+  smooth cream sauce, which is nearly featureless. Seven variations on edge
+  energy — whole-frame, per-tile percentiles, contrast-normalised, FFT
+  high-frequency share, edge-ratio, and two published no-reference metrics —
+  all got that pair the wrong way round. The failure is structural, not a
+  matter of calibration.
+
+  The new score follows Crete et al. 2007: blur the image again deliberately
+  and measure how much the neighbouring-pixel differences change. A sharp
+  image loses a great deal; an already-blurred one has little left to lose.
+  The result is a ratio, so scene contrast cancels out — which is exactly the
+  confound that sank the edge-energy family. It is aggregated to answer "is
+  anything in this frame in focus", by letting only tiles that contain edges
+  vote and taking the 10th percentile of those: nearly the sharpest, but
+  robust to one anomalous tile. Taking the sharpest zone outright was measured
+  and is much worse — a uniformly out-of-focus frame with strong wide edges
+  always has *some* region that looks structured, which put that blurred
+  slide anywhere from the 23rd to the 85th percentile of the folder depending
+  on zone size, against the 0th for the rule that shipped.
+
+  Costs 11ms per photo against roughly 1ms before, on a decode already paid
+  for, and next to ~80ms for the CLIP pass it rides along with.
+
+  Cached scores from earlier versions are discarded and recomputed, since the
+  number means something different now.
+
+- Night photographs are no longer penalised for being mostly empty. A correctly
+  exposed shot of the moon in a dark sky has almost no fine detail anywhere,
+  so the old edge-energy score put it at the very bottom of the folder; it now
+  scores in the middle or above.
+
+### Fixed
+
+- A tile that was perfectly uniform along one axis — a picket fence, a
+  horizon, a window frame — was discarded entirely instead of being measured
+  along the axis that did carry information.
+
+
 ## [2.4.1]
 
 ### Fixed

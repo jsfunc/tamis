@@ -28,7 +28,7 @@ QUALITY_FILENAME = ".tamis_quality.json"
 # RAW_MIN/RAW_MAX change. Scores are only ever compared against each other, so
 # a mixed cache has no symptom beyond an ordering that is quietly wrong --
 # there would be nothing to notice and nothing to debug from.
-MODEL_ID = "clip-ViT-L-14-quickgelu-openai+laion-aesthetic-l14-mlp+range3.0-7.0+blur2-4000"
+MODEL_ID = "clip-ViT-L-14-quickgelu-openai+laion-aesthetic-l14-mlp+range3.0-7.0+focus-crete-tile10-e60-d10-0.70-0.95"
 
 
 class PhotoScores(NamedTuple):

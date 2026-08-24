@@ -124,12 +124,27 @@ readily available weights ship in a toolbox under a non-commercial licence
 that cannot be distributed with GPLv3 software; this model's parts are MIT and
 Apache-2.0.
 
-The sharpness score is the variance of the image Laplacian, computed from the
-same decode the aesthetic model uses, so it costs about a millisecond per
-photo and no extra file read. It measures how much fine detail is present,
-which is a good proxy for focus and a poor one for content: a sharp photo of a
-plain wall or an empty sky scores low, and a busy but slightly soft scene can
-outscore a clean, crisply-focused one.
+The sharpness score measures **focus**, and does it by blurring the image
+again on purpose: a sharp photo loses a great deal when blurred, an
+already-blurred one has little left to lose (Crete et al. 2007). Because the
+result is a ratio of pixel differences, scene contrast cancels out of it. That
+matters more than it sounds — the obvious metric, the variance of the image
+Laplacian, measures how much fine *texture* a frame holds, which is not the
+same thing at all. Tested against hand-labelled photos it put an out-of-focus
+picture of a projected slide (white text on black, so huge contrast across
+soft wide edges) *above* a correctly focused close-up of a smooth sauce.
+Seven variations on edge energy failed that pair the same way.
+
+It is aggregated to answer "is anything in this frame in focus" rather than
+"is the frame sharp on average", since culling cares about the subject and not
+the background: only tiles containing edges get a vote, and the 10th
+percentile of those decides — nearly the sharpest, but robust to one
+anomalous tile. It runs on the same decode the aesthetic model uses, costing
+about 11ms per photo and no extra file read.
+
+Its blind spot is worth knowing: a frame with almost no texture anywhere — an
+empty sky, a smooth surface — gives it little to work with, and it will report
+a low score whether or not the photo is in focus.
 
 Both are good ways to surface obvious rejects and to order a folder roughly.
 Neither is a judgement of your taste — treat a low score as a suggestion to

@@ -181,7 +181,7 @@ def test_a_blurred_image_scores_below_a_sharp_one():
 
 
 def test_a_flat_image_scores_zero():
-    # No edges at all -- the honest answer is "no detail", which is also the
+    # No edges at all -- the honest answer is "no evidence", which is also the
     # metric's known blind spot: a sharp photo of a blank wall looks like this.
     from PIL import Image
 
@@ -191,12 +191,28 @@ def test_a_flat_image_scores_zero():
 
 
 def test_the_score_is_clamped_to_0_100():
-    from tamis.quality.blur import RAW_MAX, RAW_MIN, blur_score, laplacian_variance
+    from tamis.quality.blur import RAW_MAX, RAW_MIN, blur_score, focus_measure
 
     sharp = _gradient()
     assert RAW_MIN < RAW_MAX
-    assert laplacian_variance(sharp) > 0
+    assert focus_measure(sharp) > 0
     assert 0 <= blur_score(sharp) <= 100
+
+
+def test_focus_ignores_contrast():
+    # The point of the metric: halving a scene's contrast must not read as
+    # blur. Edge-energy metrics fail this by a factor of four.
+    pytest.importorskip("numpy")
+    import numpy as np
+    from PIL import Image
+
+    from tamis.quality.blur import focus_measure
+
+    sharp = _gradient()
+    faint = Image.fromarray(
+        (np.asarray(sharp, dtype=np.float32) * 0.25 + 96).astype(np.uint8)
+    )
+    assert abs(focus_measure(sharp) - focus_measure(faint)) < 0.05
 
 
 def test_a_tiny_image_does_not_crash():
