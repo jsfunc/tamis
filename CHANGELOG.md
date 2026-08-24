@@ -6,6 +6,18 @@ work landed, not necessarily when a version was tagged.
 
 ## [Unreleased]
 
+### Added
+
+- **A sort-by-sharpness button (`◎`) below the score filter slider**, mirroring
+  the sort-by-quality button (`↓`) above it. The slider and the two buttons
+  together still occupy exactly one thumbnail cell, so the controls stay lined
+  up with the strip they act on. The two buttons are mutually exclusive —
+  there is one sort order, so lighting one unlights the other — and either
+  returns to filename order when clicked again. Both orders are in the View
+  menu as well, and both put not-yet-scored photos last rather than treating
+  them as having scored zero, re-sorting as results arrive in the background.
+
+
 ## [2.5.0]
 
 ### Changed

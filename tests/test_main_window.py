@@ -987,11 +987,105 @@ def test_toggling_off_returns_to_names_even_from_another_order(main_window, tmp_
 
 
 @needs_quality
+def test_sorting_by_sharpness_puts_the_sharpest_first_and_the_unscored_last(main_window, tmp_path):
+    # Sharpness orders on the second number under each thumbnail, and it must
+    # not fall back to the quality score: here the two disagree completely.
+    from tamis.quality.store import PhotoScores
+
+    photos = tmp_path / "photos"
+    photos.mkdir()
+    _make_photos(photos, count=4)
+    main_window.open_folder(photos)
+    _seed_scores(
+        main_window,
+        {
+            0: PhotoScores(quality=90, blur=10),
+            1: PhotoScores(quality=10, blur=80),
+            3: PhotoScores(quality=50, blur=40),
+        },  # index 2 left unscored
+    )
+
+    main_window._set_sort_mode("sharpness")
+
+    scored = [main_window.quality_ctl.score_for(i.path) for i in main_window.library.items]
+    assert [s.blur for s in scored[:3]] == [80, 40, 10]
+    assert scored[3] is None
+
+
+@needs_quality
+def test_the_two_sort_buttons_are_mutually_exclusive(main_window, tmp_path):
+    # One sort mode, two buttons: lighting one has to unlight the other, or
+    # the strip would claim to be in two orders at once.
+    photos = tmp_path / "photos"
+    photos.mkdir()
+    _make_photos(photos, count=2)
+    main_window.open_folder(photos)
+
+    main_window.sort_by_score_button.click()
+    assert main_window.sort_by_score_button.isChecked()
+    assert not main_window.sort_by_sharpness_button.isChecked()
+
+    main_window.sort_by_sharpness_button.click()
+    assert main_window._sort_mode == "sharpness"
+    assert main_window.sort_by_sharpness_button.isChecked()
+    assert not main_window.sort_by_score_button.isChecked()
+
+    main_window.sort_by_name_action.trigger()
+    assert not main_window.sort_by_sharpness_button.isChecked()
+    assert not main_window.sort_by_score_button.isChecked()
+
+
+@needs_quality
+def test_the_sharpness_button_toggles_back_to_alphabetical_order(main_window, tmp_path):
+    from tamis.quality.store import PhotoScores
+
+    photos = tmp_path / "photos"
+    photos.mkdir()
+    _make_photos(photos, count=4)
+    main_window.open_folder(photos)
+    _seed_scores(main_window, {i: PhotoScores(quality=50, blur=10 * i) for i in range(4)})
+
+    main_window.sort_by_sharpness_button.click()
+    assert main_window._sort_mode == "sharpness"
+    assert main_window.sort_by_sharpness_action.isChecked()
+
+    main_window.sort_by_sharpness_button.click()
+    assert main_window._sort_mode == "name"
+    assert not main_window.sort_by_sharpness_button.isChecked()
+    names = [item.name for item in main_window.library.items]
+    assert names == sorted(names)
+
+
+@needs_quality
+def test_sharpness_order_fills_in_as_scores_arrive(main_window, tmp_path):
+    # Same contract as score order: asking for it before any scores exist must
+    # still take effect, and re-sort once results land.
+    from tamis.quality.store import PhotoScores
+
+    photos = tmp_path / "photos"
+    photos.mkdir()
+    _make_photos(photos, count=3)
+    main_window.open_folder(photos)
+
+    main_window.sort_by_sharpness_button.click()
+    assert main_window._sort_mode == "sharpness"
+
+    _seed_scores(main_window, {i: PhotoScores(quality=0, blur=b) for i, b in enumerate((20, 90, 55))})
+    main_window._on_scores_updated()
+
+    blurs = [main_window.quality_ctl.score_for(i.path).blur for i in main_window.library.items]
+    assert blurs == [90, 55, 20]
+
+
+@needs_quality
 def test_the_quality_controls_are_one_thumbnail_tall(main_window):
     # The button and slider share the height of a single filmstrip cell, so
     # they line up with the strip they act on.
     column = main_window.sort_by_score_button.parentWidget()
     assert column.height() == main_window.thumbnail_list.gridSize().height()
+    # Both buttons live in it, so adding the second one must not have pushed
+    # the column past the cell it lines up with.
+    assert main_window.sort_by_sharpness_button.parentWidget() is column
 
 
 @needs_quality

@@ -89,8 +89,11 @@ it will actually use the GPU.
 With the optional quality extra installed, every photo gets two numbers under
 its thumbnail: an **aesthetic score from 0 to 100** in bold, and a
 **sharpness score** just after it in lighter type. A **vertical slider left of
-the filmstrip** hides anything below a chosen aesthetic score, and the button
-above it ranks photos by that score. Nothing is
+the filmstrip** hides anything below a chosen aesthetic score, bracketed by a
+button at each end that ranks the folder by one of the two numbers — `↓` above
+for quality, `◎` below for sharpness. Either button toggles back to filename
+order on a second click, and only one can be active, since there is a single
+sort order. Both are also in the View menu. Nothing is
 deleted — lowering the slider brings the photos straight back, and arrow-key
 navigation skips whatever is hidden so the strip and the viewer agree.
 

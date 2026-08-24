@@ -231,12 +231,15 @@ class MainWindow(QMainWindow):
 
     def _build_filmstrip_row(self) -> QWidget:
         """The filmstrip, with the quality controls in a narrow column to its
-        left: a sort-by-score button above the filter slider.
+        left: a sort-by-quality button, the filter slider, and a
+        sort-by-sharpness button beneath it.
 
-        The column is exactly one thumbnail cell tall, so the controls line up
-        with the strip they act on and the slider's travel reads against the
-        scores printed under each photo. Absent entirely when scoring isn't
-        installed, rather than shown doing nothing.
+        The two buttons bracket the slider because they are the two orders the
+        scores under each thumbnail support, and the slider filters on the
+        first of them. The column is exactly one thumbnail cell tall, so the
+        controls line up with the strip they act on and the slider's travel
+        reads against the scores printed under each photo. Absent entirely
+        when scoring isn't installed, rather than shown doing nothing.
         """
         row = QWidget()
         layout = QHBoxLayout(row)
@@ -269,8 +272,18 @@ class MainWindow(QMainWindow):
             self._update_score_filter_tooltip(0)
             self.score_filter.valueChanged.connect(self._on_score_filter_changed)
 
+            self.sort_by_sharpness_button = QToolButton()
+            self.sort_by_sharpness_button.setText("\u25ce")  # a focusing reticle
+            self.sort_by_sharpness_button.setCheckable(True)
+            self.sort_by_sharpness_button.setToolTip(
+                "Rank photos by sharpness, sharpest first.\nClick again for filename order."
+            )
+            self.sort_by_sharpness_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            self.sort_by_sharpness_button.clicked.connect(self._on_sort_by_sharpness_clicked)
+
             column_layout.addWidget(self.sort_by_score_button, 0, Qt.AlignmentFlag.AlignHCenter)
             column_layout.addWidget(self.score_filter, 1, Qt.AlignmentFlag.AlignHCenter)
+            column_layout.addWidget(self.sort_by_sharpness_button, 0, Qt.AlignmentFlag.AlignHCenter)
             layout.addWidget(column, 0, Qt.AlignmentFlag.AlignTop)
 
         layout.addWidget(self.thumbnail_list, 1)
@@ -287,6 +300,15 @@ class MainWindow(QMainWindow):
         away in the View menu, which unchecks this.
         """
         self._set_sort_mode("name" if self._sort_mode == "score" else "score")
+
+    def _on_sort_by_sharpness_clicked(self) -> None:
+        """Toggle between sharpness order and the default alphabetical order.
+
+        Same two-state contract as the quality button above the slider, and
+        the two are mutually exclusive: picking one unchecks the other,
+        because they are both faces of the single sort mode.
+        """
+        self._set_sort_mode("name" if self._sort_mode == "sharpness" else "sharpness")
 
     def _update_score_filter_tooltip(self, value: int) -> None:
         self.score_filter.setToolTip(
@@ -332,14 +354,15 @@ class MainWindow(QMainWindow):
         # every photo sits in the "unscored" bucket and score order is
         # identical to filename order. Toggling off again before the pass
         # finished then meant it never appeared to work.
-        if self._sort_mode == "score":
+        if self._sort_mode in ("score", "sharpness"):
             self._resort_by_score()
         self._update_status_bar()
 
     def _resort_by_score(self) -> None:
+        """Re-apply whichever score-derived order is active, as results land."""
         if not self.library.items:
             return
-        self.library.sort_items(key=self._sort_key("score"))
+        self.library.sort_items(key=self._sort_key(self._sort_mode))
         self.thumbnail_list.set_items(self.library.items)
         self.thumbnail_list.select_index(self.library.current_index)
 
@@ -421,6 +444,14 @@ class MainWindow(QMainWindow):
             self.sort_by_score_action.triggered.connect(lambda: self._set_sort_mode("score"))
             sort_group.addAction(self.sort_by_score_action)
             view_menu.addAction(self.sort_by_score_action)
+
+            self.sort_by_sharpness_action = QAction("Sort by Sharpness", self)
+            self.sort_by_sharpness_action.setCheckable(True)
+            self.sort_by_sharpness_action.triggered.connect(
+                lambda: self._set_sort_mode("sharpness")
+            )
+            sort_group.addAction(self.sort_by_sharpness_action)
+            view_menu.addAction(self.sort_by_sharpness_action)
 
         help_menu = self.menuBar().addMenu("&Help")
         shortcuts_action = QAction("Keyboard Shortcuts", self)
@@ -752,6 +783,8 @@ class MainWindow(QMainWindow):
             return lambda item: (-item.rating, self._capture_time(item))
         if mode == "score":
             return self._score_sort_key
+        if mode == "sharpness":
+            return self._sharpness_sort_key
         return lambda item: item.path
 
     def _score_sort_key(self, item):
@@ -768,6 +801,14 @@ class MainWindow(QMainWindow):
             return (1, 0, item.path)
         return (0, -scores.quality, item.path)
 
+    def _sharpness_sort_key(self, item):
+        """Sharpest first, unscored photos last -- see `_score_sort_key` for
+        why unscored is a bucket of its own rather than a zero."""
+        scores = self.quality_ctl.score_for(item.path) if QUALITY_AVAILABLE else None
+        if scores is None:
+            return (1, 0, item.path)
+        return (0, -scores.blur, item.path)
+
     def _set_sort_mode(self, mode: str) -> None:
         if mode == self._sort_mode:
             return
@@ -783,22 +824,30 @@ class MainWindow(QMainWindow):
         }
         if QUALITY_AVAILABLE:
             sort_actions["score"] = self.sort_by_score_action
+            sort_actions["sharpness"] = self.sort_by_sharpness_action
         sort_actions[mode].setChecked(True)
         if QUALITY_AVAILABLE:
-            # The filmstrip button is a second face of the same choice, so it
-            # has to follow a change made from the View menu too.
+            # The filmstrip buttons are a second face of the same choice, so
+            # they have to follow a change made from the View menu too -- and
+            # only one of them can be lit, since there is one sort mode.
             self.sort_by_score_button.setChecked(mode == "score")
+            self.sort_by_sharpness_button.setChecked(mode == "sharpness")
         if self.library.items:
             self.library.sort_items(key=self._sort_key(mode))
             self.thumbnail_list.set_items(self.library.items)
             self.thumbnail_list.select_index(self.library.current_index)
             self._update_status_bar()
-            if QUALITY_AVAILABLE and mode == "score" and self.quality_ctl.scoring_in_progress:
+            if (
+                QUALITY_AVAILABLE
+                and mode in ("score", "sharpness")
+                and self.quality_ctl.scoring_in_progress
+            ):
                 # Nothing will appear to move until scores exist, so say so
                 # rather than leaving the click looking ignored.
                 done, total = self.quality_ctl.scoring_progress
+                order = "quality score" if mode == "score" else "sharpness"
                 self.statusBar().showMessage(
-                    f"Sorting by quality score — still scoring ({done}/{total}); "
+                    f"Sorting by {order} — still scoring ({done}/{total}); "
                     "the order fills in as results arrive."
                 )
 
