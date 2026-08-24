@@ -6,6 +6,8 @@ work landed, not necessarily when a version was tagged.
 
 ## [Unreleased]
 
+## [2.5.1]
+
 ### Added
 
 - **A sort-by-sharpness button (`◎`) below the score filter slider**, mirroring
