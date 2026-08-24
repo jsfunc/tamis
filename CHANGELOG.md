@@ -6,6 +6,19 @@ work landed, not necessarily when a version was tagged.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Quality scoring contacted HuggingFace on every start, even with the model
+  fully cached.** `open_clip` resolves the CLIP weights to a HuggingFace repo
+  rather than their original URL, and `huggingface_hub` re-checks the remote
+  revision each time a model is loaded — so "everything runs locally after
+  that" was not true. No photo, face or score data was ever sent; the request
+  asked about a public model repo. The model is now loaded offline by
+  default, reaching the network only when the weights are genuinely not
+  cached yet, and an `HF_HUB_OFFLINE` you set yourself is respected in either
+  direction. Verified by recording outbound connections: two per load before,
+  zero now.
+
 ### Changed
 
 - The filmstrip is 7px shorter: the padding around each cell was trimmed to

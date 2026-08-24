@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -221,3 +222,68 @@ def test_scores_are_stored_and_read_back_as_a_pair(tmp_path):
     reloaded = QualityStore()
     reloaded.load(tmp_path)
     assert reloaded.get(tmp_path / "a.jpg") == PhotoScores(62, 88)
+
+
+def _patched_clip(monkeypatch, behaviour):
+    """Replace open_clip's model builder and record HF_HUB_OFFLINE as it saw it."""
+    open_clip = pytest.importorskip("open_clip")
+    seen = []
+
+    def fake(*args, **kwargs):
+        seen.append(os.environ.get("HF_HUB_OFFLINE"))
+        return behaviour(len(seen))
+
+    monkeypatch.setattr(open_clip, "create_model_and_transforms", fake)
+    # _allow_hub_downloads flips a module constant, which would otherwise leak
+    # into later tests.
+    hub = pytest.importorskip("huggingface_hub")
+    monkeypatch.setattr(hub.constants, "HF_HUB_OFFLINE", hub.constants.HF_HUB_OFFLINE)
+    return seen
+
+
+def test_clip_loads_from_the_cache_without_touching_the_network(monkeypatch):
+    """open_clip resolves pretrained="openai" to a HuggingFace repo, and
+    huggingface_hub re-checks the remote revision on every load -- so a fully
+    cached model still contacted huggingface.co each time the scorer started.
+    No image data was involved, but "runs entirely locally" should be true
+    rather than nearly true."""
+    from tamis.quality import scorer
+
+    monkeypatch.delenv("HF_HUB_OFFLINE", raising=False)
+    seen = _patched_clip(monkeypatch, lambda n: ("model", None, "preprocess"))
+
+    scorer._load_clip()
+
+    assert seen == ["1"]  # offline on the only attempt
+
+
+def test_a_model_that_is_not_cached_yet_is_downloaded_once(monkeypatch):
+    from tamis.quality import scorer
+
+    monkeypatch.delenv("HF_HUB_OFFLINE", raising=False)
+
+    def behaviour(attempt):
+        if attempt == 1:
+            raise RuntimeError("not in the local cache")
+        return ("model", None, "preprocess")
+
+    seen = _patched_clip(monkeypatch, behaviour)
+
+    scorer._load_clip()
+
+    # Offline first, then network exactly once for the initial download.
+    assert seen == ["1", "0"]
+
+
+def test_an_explicit_offline_setting_is_not_overridden(monkeypatch):
+    # Someone who set HF_HUB_OFFLINE deliberately must not have it flipped
+    # back by a cache miss.
+    from tamis.quality import scorer
+
+    monkeypatch.setenv("HF_HUB_OFFLINE", "1")
+    seen = _patched_clip(monkeypatch, lambda n: (_ for _ in ()).throw(RuntimeError("not cached")))
+
+    with pytest.raises(RuntimeError):
+        scorer._load_clip()
+
+    assert seen == ["1"]  # no retry, no download

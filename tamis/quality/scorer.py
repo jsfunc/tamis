@@ -23,6 +23,7 @@ else it already decodes.
 from __future__ import annotations
 
 import logging
+import os
 import urllib.request
 from pathlib import Path
 
@@ -108,18 +109,57 @@ def _ensure_head_downloaded() -> Path:
     return HEAD_CACHE
 
 
+def _allow_hub_downloads() -> None:
+    """Re-enable huggingface_hub's network access, for the one-time download.
+
+    The environment variable alone is not enough once huggingface_hub has been
+    imported: it reads HF_HUB_OFFLINE into a module constant at import time,
+    and its callers read that constant rather than the environment.
+    """
+    os.environ["HF_HUB_OFFLINE"] = "0"
+    try:
+        from huggingface_hub import constants as hub_constants
+
+        hub_constants.HF_HUB_OFFLINE = False
+    except Exception:  # pragma: no cover - depends on huggingface_hub internals
+        logger.warning("Could not re-enable huggingface_hub downloads")
+
+
+def _load_clip() -> tuple:
+    """Load CLIP from the local cache, reaching the network only if it is not
+    cached yet.
+
+    open_clip resolves pretrained="openai" to a HuggingFace repo rather than
+    the original URL, and huggingface_hub re-checks the remote revision every
+    time a model is loaded -- so a fully cached model still contacted
+    huggingface.co on each start. No image data is involved, but "runs
+    entirely locally" should be true rather than nearly true.
+
+    Offline is only the *default*: a user who has set HF_HUB_OFFLINE
+    themselves is left alone, in either direction.
+    """
+    chosen_by_user = "HF_HUB_OFFLINE" in os.environ
+    os.environ.setdefault("HF_HUB_OFFLINE", "1")
+    import open_clip  # imported here so a missing extra fails at use, not import
+
+    try:
+        return open_clip.create_model_and_transforms(CLIP_MODEL, pretrained=CLIP_PRETRAINED)
+    except Exception:
+        if chosen_by_user:
+            raise  # they asked for offline; do not quietly override them
+        logger.info("CLIP weights are not cached yet; downloading once from HuggingFace")
+        _allow_hub_downloads()
+        return open_clip.create_model_and_transforms(CLIP_MODEL, pretrained=CLIP_PRETRAINED)
+
+
 def _load() -> tuple:
     """Build the model on first use. Kept lazy for the same reason the
     recognition models are: importing this module must not pull ~2GB of
     weights into memory for a user who never opens the panel."""
     global _model, _preprocess, _head, _device
     if _model is None:
-        import open_clip  # imported here so a missing extra fails at use, not import
-
         _device = "cuda" if torch.cuda.is_available() else "cpu"
-        model, _, preprocess = open_clip.create_model_and_transforms(
-            CLIP_MODEL, pretrained=CLIP_PRETRAINED
-        )
+        model, _, preprocess = _load_clip()
         head = _AestheticHead()
         head.load_state_dict(torch.load(_ensure_head_downloaded(), map_location="cpu", weights_only=True))
         _model = model.eval().to(_device)

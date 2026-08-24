@@ -101,8 +101,17 @@ pip install -r requirements-quality.txt
 
 Scores are computed once per folder in the background and cached in
 `.tamis_quality.json` beside the photos, so reopening a folder is instant.
-First use downloads ~1.7GB of CLIP weights (cached by torch) plus a 3.7MB
-scoring head into `~/.tamis/`; everything runs locally after that.
+First use downloads ~1.7GB of CLIP weights (from HuggingFace, cached in
+`~/.cache/huggingface`) plus a 3.7MB scoring head into `~/.tamis/`.
+
+**After that it is genuinely offline** — no network request of any kind, which
+was worth stating precisely because it was not true at first: `open_clip`
+fetches those weights from HuggingFace, and `huggingface_hub` re-checks the
+remote revision on *every* load, so a fully cached model still contacted
+`huggingface.co` each time the scorer started. No photo or face data was ever
+involved, but the request happened. Tamis now loads the model offline by
+default and reaches the network only when the weights are genuinely missing.
+Setting `HF_HUB_OFFLINE` yourself is respected in either direction.
 
 The score comes from CLIP image embeddings fed to the LAION aesthetic
 predictor. It was chosen over five alternatives measured on a 455-photo
