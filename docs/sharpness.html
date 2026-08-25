@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tamis &mdash; How the Sharpness Score Works</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --text: #1c1e21;
+    --muted: #5b6270;
+    --border: #e3e5e8;
+    --accent: #2f6feb;
+    --code-bg: #f4f5f7;
+    --card-bg: #f9fafb;
+    --green: #1f8b4c;
+    --red: #c23b3b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14161a;
+      --text: #e7e9ec;
+      --muted: #9aa1ab;
+      --border: #2a2d33;
+      --accent: #6ea1ff;
+      --code-bg: #1d2024;
+      --card-bg: #1a1d21;
+      --green: #4cbf7f;
+      --red: #e07272;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.6;
+    margin: 0;
+    padding: 0 1.5rem 4rem;
+  }
+  .page {
+    max-width: 760px;
+    margin: 0 auto;
+  }
+  header.hero {
+    padding: 3rem 0 1.5rem;
+    border-bottom: 1px solid var(--border);
+  }
+  header.hero h1 {
+    font-size: 1.9rem;
+    margin: 0 0 0.4rem;
+  }
+  header.hero p.subtitle {
+    color: var(--muted);
+    font-size: 1.05rem;
+    margin: 0;
+  }
+  h2 {
+    font-size: 1.4rem;
+    margin-top: 3rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--border);
+  }
+  h3 {
+    font-size: 1.1rem;
+    margin-top: 2rem;
+  }
+  p, li { color: var(--text); }
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: var(--code-bg);
+    padding: 0.15em 0.4em;
+    border-radius: 4px;
+    font-size: 0.9em;
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.9rem 1rem;
+    overflow-x: auto;
+  }
+  pre code { background: none; padding: 0; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1rem 1.25rem;
+    margin: 1.25rem 0;
+  }
+  .card h4 {
+    margin: 0 0 0.4rem;
+    font-size: 0.95rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--muted);
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.25rem 0;
+    font-size: 0.95rem;
+  }
+  th, td {
+    text-align: left;
+    padding: 0.5rem 0.6rem;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  th { color: var(--muted); font-weight: 600; }
+  .pipeline {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    margin: 1.5rem 0;
+  }
+  .pipeline .step {
+    flex: 1 1 140px;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.75rem 0.85rem;
+    font-size: 0.9rem;
+  }
+  .pipeline .step .n {
+    display: inline-block;
+    width: 1.4em; height: 1.4em;
+    line-height: 1.4em;
+    text-align: center;
+    border-radius: 50%;
+    background: var(--accent);
+    color: white;
+    font-size: 0.75rem;
+    margin-right: 0.4rem;
+  }
+  .toc {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1rem 1.5rem;
+    margin: 1.5rem 0;
+  }
+  .toc h4 { margin-top: 0; color: var(--muted); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.03em; }
+  .toc ol { margin: 0.3rem 0 0; padding-left: 1.2rem; }
+  .toc li { margin: 0.2rem 0; }
+  .badge {
+    display: inline-block;
+    font-size: 0.75rem;
+    padding: 0.1em 0.55em;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    margin-left: 0.4em;
+  }
+  .file-path { color: var(--muted); }
+  .swatch {
+    display: inline-block;
+    width: 0.8em; height: 0.8em;
+    border-radius: 2px;
+    margin-right: 0.35em;
+    vertical-align: middle;
+  }
+  footer {
+    margin-top: 4rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 0.85rem;
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+<header class="hero">
+  <h1>How the sharpness score works</h1>
+  <p class="subtitle">The small number under each thumbnail, and what it can and cannot tell you.</p>
+</header>
+
+<h2>The short version</h2>
+
+<p>Every photo gets two numbers under its thumbnail. The <strong>bold</strong> one is the
+aesthetic quality score. The lighter one beside it is <strong>sharpness</strong>, from 0 to
+100, and it answers one narrow question:</p>
+
+<p class="card"><strong>How few pixels does a real edge in this photo take to cross?</strong></p>
+
+<p>A crisp edge goes from dark to light in about one pixel. Defocus does not erase an edge
+&mdash; it <em>widens</em> it, spreading the same change over five, eight, twelve pixels. So the
+score is a measure of edge width: <strong>100</strong> means edges resolve in a single pixel,
+<strong>0</strong> means the sharpest thing found still takes eight or more.</p>
+
+<p>Sort the filmstrip by sharpness with the <code>&#9678;</code> button below the filter slider,
+or <em>View &rarr; Sort by Sharpness</em>.</p>
+
+<h2>What it actually measures</h2>
+
+<p>A window sixteen pixels long slides along every row and every column of the photo. The four
+pixels at each end are <em>plateaus</em>; the eight in the middle are where an edge would sit.</p>
+
+<pre><code>step  = mean(right plateau) &minus; mean(left plateau)     how much it changes
+width = pixels for the profile to rise from 10% to 90% of that step</code></pre>
+
+<p>That is the whole measurement. The photo's tiles are scored from the widths found inside
+them, and the photo's score is the average of its five sharpest tiles.</p>
+
+<p>The important detail is that <code>step</code> is a <em>difference of two averages</em>,
+never a sum of differences. That distinction is the entire design, and the section on grain
+below explains why.</p>
+
+<h2>When does a window count as an edge?</h2>
+
+<p>Most of the sixteen-pixel windows in a photo contain no edge at all. Four tests decide,
+and each one exists because a real photo scored wrongly without it.</p>
+
+<table>
+  <thead>
+    <tr><th>Test</th><th>What it requires</th><th>What it removes</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Amplitude</strong></td>
+      <td>The step carries at least 18 grey levels, and is at least 5&times; the scatter within
+      its own plateaus.</td>
+      <td>Film grain and sensor noise, with no noise model and no per-photo calibration.</td>
+    </tr>
+    <tr>
+      <td><strong>Contained</strong></td>
+      <td>The profile is still near the left plateau where the window starts, and has reached
+      the right one where it ends.</td>
+      <td>Steps that already happened <em>inside</em> a plateau, which otherwise measure as an
+      instant &mdash; and therefore perfect &mdash; rise.</td>
+    </tr>
+    <tr>
+      <td><strong>Monotone</strong></td>
+      <td>The climb does not reverse by more than a quarter of the step.</td>
+      <td>Noise that merely touches the far level on one excursion. Wandering is not an edge,
+      however far it wanders.</td>
+    </tr>
+    <tr>
+      <td><strong>No overshoot</strong></td>
+      <td>The profile approaches each plateau rather than shooting past it.</td>
+      <td>Sharpening halos &mdash; the bright rim phone cameras add beside a dark region, which
+      fakes a fast transition.</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>A tile needs at least 200 windows that pass all four before it will offer an opinion. One
+genuine edge crossing a tile lights up roughly a thousand of them, so this threshold only
+discards statistical flukes &mdash; a handful of chance readings in a dark, grainy patch, all
+of them narrow and therefore all of them wrongly flattering.</p>
+
+<h2>Why grain is the hard part</h2>
+
+<p>The obvious way to detect blur is to measure how much detail a photo contains &mdash; edge
+energy, or how much a deliberate re-blur changes the image. Tamis used exactly that until
+version 2.6, and it was wrong in a way worth explaining, because it is the trap every simple
+sharpness metric falls into.</p>
+
+<p>Those metrics all divide one sum of differences by another. Grain is uncorrelated
+pixel-to-pixel noise, so it inflates such a sum without limit. Measured on synthetic test
+tiles through the old code:</p>
+
+<table>
+  <thead><tr><th>Tile content</th><th>Old score</th></tr></thead>
+  <tbody>
+    <tr><td>pure noise, &sigma;&nbsp;5</td><td><strong>0.911</strong></td></tr>
+    <tr><td>pure noise, &sigma;&nbsp;20</td><td><strong>0.915</strong></td></tr>
+    <tr><td>a perfectly sharp, noise-free edge</td><td>0.800</td></tr>
+    <tr><td>a featureless wall</td><td>0.147</td></tr>
+    <tr><td>the same wall with a little grain added</td><td><strong>0.809</strong></td></tr>
+  </tbody>
+</table>
+
+<p class="card">Noise scored <em>higher than a perfectly sharp edge</em>, and adding grain to a
+blank wall took it from 0.15 to 0.81. On a real folder the old score rated a set of
+deliberately blurry photos <em>above</em> a set of good ones, and gave a sharp portrait with a
+soft background a score of 8 out of 100.</p>
+
+<p>Averaging cancels grain instead of accumulating it. Because <code>step</code> is a
+difference of two four-pixel averages, grain shrinks it rather than inflating it &mdash; which
+is why the current measure reports "no edge here" for pure noise, at any amplitude, instead of
+reporting it as the sharpest thing in the frame.</p>
+
+<h2>Blank, not blurred</h2>
+
+<p>Some photos contain no edge the measure can read: an empty sky, a smooth wall, a subject
+lost in fog. These are shown with a dash (<code>&ndash;</code>) rather than a number, and the
+status bar calls them <em>not measurable</em>.</p>
+
+<p>This is deliberate and it is not the same as scoring zero. Zero means "measured, and out of
+focus". A dash means the photo never offered evidence either way &mdash; a perfectly sharp
+photograph of a blank wall looks identical to a blurred one at this level. Sorting by sharpness
+puts these photos at the end alongside the not-yet-scored, rather than sinking them below
+genuinely soft frames.</p>
+
+<h2>What the score cannot tell you</h2>
+
+<p class="card">The score is the average of the five sharpest tiles <em>anywhere</em> in the
+frame, and nothing ties those tiles to your subject.</p>
+
+<p>A motion-blurred portrait taken in front of a sunlit window scores high &mdash; on the
+window. Venetian blinds, a wall's architectural lines, a hard shadow boundary: all genuinely
+sharp, all quite capable of speaking for a photo whose actual subject is smeared. The
+measurement is honest; the question it answers is simply narrower than "is this a good photo".</p>
+
+<p>So read a high score as <strong>"something in this frame is in focus"</strong>, and a low one
+as <strong>"worth a look"</strong>. It is a tool for finding candidates to examine, not a
+verdict to cull by.</p>
+
+<p>Two related limits worth knowing:</p>
+
+<ul>
+  <li><strong>Depth of field is not a defect.</strong> A portrait shot wide open is mostly
+  out-of-focus background. The score reports on the sharp part, which is the intent &mdash; but
+  it means the number describes the subject only when the subject is the sharpest thing
+  present.</li>
+  <li><strong>Focus can be where you did not want it.</strong> If a portrait's chest is sharp
+  and the face is soft, the score reports the chest, correctly and unhelpfully.</li>
+</ul>
+
+<h2>Resolution and cost</h2>
+
+<p>Edge width is counted in pixels, so the resolution the photo is measured at is part of the
+measure. Tamis decodes each photo at <strong>half</strong> its stored size &mdash; four times
+cheaper than full resolution, and on a 28-photo trial it reordered almost nothing (rank
+correlation 0.955).</p>
+
+<p>Quarter resolution was tested and rejected. The whole span from sharp to fully defocused
+compresses into about one usable pixel there, and the ranking degrades badly: leaving the scale
+alone made a completely defocused photo score 84, and rescaling it pinned six photos &mdash;
+including a good one &mdash; at exactly zero.</p>
+
+<p>The measure costs roughly <strong>0.6&nbsp;seconds per photo</strong>, which is most of the
+time the background scoring pass spends. It runs once per photo and is cached in
+<code>.tamis_quality.json</code> beside your images, so a folder is only ever scored once.
+Deleting that file forces a rescore.</p>
+
+<h2>Reading the number in practice</h2>
+
+<table>
+  <thead><tr><th>Score</th><th>Usually means</th></tr></thead>
+  <tbody>
+    <tr><td><strong>90&ndash;100</strong></td><td>Edges resolve in about a pixel. Something here is properly in focus.</td></tr>
+    <tr><td><strong>70&ndash;90</strong></td><td>Sharp enough for most uses; fine detail may be slightly soft.</td></tr>
+    <tr><td><strong>40&ndash;70</strong></td><td>Visibly soft. Worth opening at full size before keeping.</td></tr>
+    <tr><td><strong>0&ndash;40</strong></td><td>Nothing in the frame resolves well. Usually camera shake or missed focus.</td></tr>
+    <tr><td><code>&ndash;</code></td><td>No edge to measure. The score has no opinion, in either direction.</td></tr>
+  </tbody>
+</table>
+
+<p>The numbers are only meaningful <em>relative to each other</em>, and only within a
+comparable set of photos. Different cameras, lenses and processing shift the whole scale, so
+compare within a shoot rather than across your library.</p>
+
+<footer>
+  Tamis is a local, offline photo culling and editing app &mdash; sharpness scoring runs entirely on your own machine, and no photo data leaves it.
+</footer>
+
+</div>
+</body>
+</html>

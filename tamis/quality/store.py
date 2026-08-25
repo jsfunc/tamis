@@ -24,20 +24,28 @@ QUALITY_FILENAME = ".tamis_quality.json"
 # on load, so scores from a different model -- or a different raw->0-100
 # mapping -- are recomputed rather than ranked alongside current ones.
 #
-# Bump this whenever scorer.CLIP_MODEL, CLIP_PRETRAINED, the aesthetic head, or
-# RAW_MIN/RAW_MAX change. Scores are only ever compared against each other, so
-# a mixed cache has no symptom beyond an ordering that is quietly wrong --
-# there would be nothing to notice and nothing to debug from.
-MODEL_ID = "clip-ViT-L-14-quickgelu-openai+laion-aesthetic-l14-mlp+range3.0-7.0+focus-crete-tile10-e60-d10-0.70-0.95"
+# Bump this whenever scorer.CLIP_MODEL, CLIP_PRETRAINED, the aesthetic head or
+# RAW_MIN/RAW_MAX change, and equally for anything that moves the sharpness
+# scale: blur.MAX_WIDTH, TILE, the window geometry, the decode resolution, or
+# the tests a window must pass. Scores are only ever compared against each
+# other, so a mixed cache has no symptom beyond an ordering that is quietly
+# wrong -- there would be nothing to notice and nothing to debug from.
+MODEL_ID = "clip-ViT-L-14-quickgelu-openai+laion-aesthetic-l14-mlp+range3.0-7.0+edgewidth-half-tile64-w5-p4s8-a18-snr5"
 
 
 class PhotoScores(NamedTuple):
     """What is known about one photo. `quality` is the aesthetic score,
     `blur` is sharpness -- both 0-100, both higher-is-better, and deliberately
-    separate: a sharp photo can be dull and a lovely one can be soft."""
+    separate: a sharp photo can be dull and a lovely one can be soft.
+
+    `blur` is None when the photo contains no edge the measure can read at all
+    -- an empty sky, a smooth wall. That is "no evidence", and it is not the
+    same answer as zero, which means "measured, and out of focus". Ranking and
+    filtering must leave such photos alone rather than sink them.
+    """
 
     quality: int
-    blur: int
+    blur: int | None
 
 
 class QualityStore:
@@ -79,14 +87,26 @@ class QualityStore:
         scores = data.get("scores")
         if not isinstance(scores, dict):
             return
+
+        def rated(value) -> bool:
+            return (
+                isinstance(value, (int, float))
+                and not isinstance(value, bool)
+                and 0 <= value <= 100
+            )
+
         self._scores = {
-            str(name): PhotoScores(quality=int(entry["quality"]), blur=int(entry["blur"]))
+            str(name): PhotoScores(
+                quality=int(entry["quality"]),
+                blur=None if entry["blur"] is None else int(entry["blur"]),
+            )
             for name, entry in scores.items()
             if isinstance(entry, dict)
-            and all(
-                isinstance(entry.get(k), (int, float)) and 0 <= entry[k] <= 100
-                for k in ("quality", "blur")
-            )
+            and "blur" in entry
+            and rated(entry.get("quality"))
+            # null is a real value here -- "measured, nothing to measure" -- so
+            # it passes, while a missing key (rejected above) does not.
+            and (entry["blur"] is None or rated(entry["blur"]))
         }
 
     def _state_path(self) -> Path:

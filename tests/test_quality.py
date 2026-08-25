@@ -76,9 +76,13 @@ def test_out_of_range_and_malformed_entries_are_ignored(tmp_path):
             "model": MODEL_ID,
             "scores": {
                 "ok.jpg": {"quality": 55, "blur": 60},
+                # null is a value this version writes: "measured, no edge to
+                # measure". It must survive the round trip, unlike the rest.
+                "unmeasurable.jpg": {"quality": 55, "blur": None},
                 "high.jpg": {"quality": 150, "blur": 60},
                 "low.jpg": {"quality": -3, "blur": 60},
                 "text.jpg": {"quality": "nope", "blur": 60},
+                "blurtext.jpg": {"quality": 40, "blur": "nope"},
                 "partial.jpg": {"quality": 40},
             },
         })
@@ -86,7 +90,8 @@ def test_out_of_range_and_malformed_entries_are_ignored(tmp_path):
     store = QualityStore()
     store.load(tmp_path)
     assert store.get(tmp_path / "ok.jpg") == PhotoScores(55, 60)
-    for name in ("high.jpg", "low.jpg", "text.jpg", "partial.jpg"):
+    assert store.get(tmp_path / "unmeasurable.jpg") == PhotoScores(55, None)
+    for name in ("high.jpg", "low.jpg", "text.jpg", "blurtext.jpg", "partial.jpg"):
         assert store.get(tmp_path / name) is None
 
 
@@ -157,72 +162,104 @@ def test_the_recorded_model_id_names_the_model_actually_used(tmp_path):
     assert f"{scorer.RAW_MIN}-{scorer.RAW_MAX}" in MODEL_ID
 
 
-def _gradient(width=200, height=200, period=4):
-    """A sharp image: hard black/white stripes, maximum edge energy."""
+def _bars(width=320, height=320, period=64):
+    """A sharp image: hard black/white bars wide enough for a window's plateaus
+    to sit inside one of them, which is what the measure needs to see a step."""
     import numpy as np
     from PIL import Image
 
-    a = np.zeros((height, width), dtype=np.uint8)
-    a[:, ::period] = 255
-    return Image.fromarray(a, mode="L").convert("RGB")
+    a = np.where((np.arange(width) // (period // 2)) % 2 == 0, 20, 220)
+    return Image.fromarray(np.broadcast_to(a, (height, width)).astype(np.uint8)).convert("RGB")
 
 
 def test_a_blurred_image_scores_below_a_sharp_one():
     pytest.importorskip("numpy")
     from PIL import ImageFilter
 
-    from tamis.quality.blur import blur_score
+    from tamis.quality.blur import sharpness_score
 
-    sharp = _gradient()
-    blurred = sharp.filter(ImageFilter.GaussianBlur(radius=4))
+    sharp = _bars()
+    blurred = sharp.filter(ImageFilter.GaussianBlur(radius=3))
 
-    assert blur_score(sharp) > blur_score(blurred)
-    assert 0 <= blur_score(blurred) <= 100
+    assert sharpness_score(sharp) > sharpness_score(blurred)
+    assert 0 <= sharpness_score(blurred) <= 100
 
 
-def test_a_flat_image_scores_zero():
-    # No edges at all -- the honest answer is "no evidence", which is also the
-    # metric's known blind spot: a sharp photo of a blank wall looks like this.
+def test_a_flat_image_reports_no_evidence_rather_than_zero():
+    # A blank wall has no edge to measure. Zero would claim it is out of focus,
+    # which the measure never established -- so the answer is None, and the
+    # ranking leaves such photos alone instead of sinking them.
     from PIL import Image
 
-    from tamis.quality.blur import blur_score
+    from tamis.quality.blur import sharpness_score
 
-    assert blur_score(Image.new("RGB", (100, 100), (128, 128, 128))) == 0
-
-
-def test_the_score_is_clamped_to_0_100():
-    from tamis.quality.blur import RAW_MAX, RAW_MIN, blur_score, focus_measure
-
-    sharp = _gradient()
-    assert RAW_MIN < RAW_MAX
-    assert focus_measure(sharp) > 0
-    assert 0 <= blur_score(sharp) <= 100
+    assert sharpness_score(Image.new("RGB", (320, 320), (128, 128, 128))) is None
 
 
-def test_focus_ignores_contrast():
-    # The point of the metric: halving a scene's contrast must not read as
-    # blur. Edge-energy metrics fail this by a factor of four.
+def test_grain_is_not_mistaken_for_sharpness():
+    # The failure that sank every earlier version of this file: a metric built
+    # on sums of absolute differences scores pure noise above a perfectly sharp
+    # edge, because a re-blur destroys all of noise's variation and little of an
+    # edge's. Nothing here may read grain as detail.
     pytest.importorskip("numpy")
     import numpy as np
     from PIL import Image
 
-    from tamis.quality.blur import focus_measure
+    from tamis.quality.blur import sharpness_score
 
-    sharp = _gradient()
-    faint = Image.fromarray(
-        (np.asarray(sharp, dtype=np.float32) * 0.25 + 96).astype(np.uint8)
-    )
-    assert abs(focus_measure(sharp) - focus_measure(faint)) < 0.05
+    rng = np.random.default_rng(0)
+    for sigma in (5, 20, 40):
+        noise = np.clip(128 + rng.normal(0, sigma, (320, 320)), 0, 255).astype(np.uint8)
+        assert sharpness_score(Image.fromarray(noise).convert("RGB")) is None
+
+
+def test_a_defocused_background_reports_no_evidence():
+    # A smooth out-of-focus gradient carrying a little grain. An earlier
+    # candidate ranked exactly this as the sharpest thing in a portrait.
+    pytest.importorskip("numpy")
+    import numpy as np
+    from PIL import Image
+
+    rng = np.random.default_rng(1)
+    from tamis.quality.blur import sharpness_score
+
+    ramp = np.arange(320) * 0.68 + 80
+    bokeh = np.clip(ramp + rng.normal(0, 1.5, (320, 320)), 0, 255).astype(np.uint8)
+    assert sharpness_score(Image.fromarray(bokeh).convert("RGB")) is None
+
+
+def test_a_sharp_edge_scores_full_marks_even_through_grain():
+    pytest.importorskip("numpy")
+    import numpy as np
+    from PIL import Image
+
+    from tamis.quality.blur import sharpness_score
+
+    rng = np.random.default_rng(2)
+    grainy = np.asarray(_bars().convert("L"), dtype=np.float32) + rng.normal(0, 5, (320, 320))
+    grainy = Image.fromarray(np.clip(grainy, 0, 255).astype(np.uint8)).convert("RGB")
+    assert sharpness_score(grainy) == 100
 
 
 def test_a_tiny_image_does_not_crash():
-    # The Laplacian needs a 3x3 neighbourhood.
+    # Smaller than one window, so there is nowhere to put a measurement.
     from PIL import Image
 
-    from tamis.quality.blur import blur_score
+    from tamis.quality.blur import sharpness_score
 
-    for size in ((1, 1), (2, 2), (1, 50)):
-        assert blur_score(Image.new("RGB", size, (10, 20, 30))) == 0
+    for size in ((1, 1), (2, 2), (1, 50), (20, 20)):
+        assert sharpness_score(Image.new("RGB", size, (10, 20, 30))) is None
+
+
+def test_the_decode_for_sharpness_halves_the_stored_size(tmp_path):
+    # Edge width is a pixel count, so the decode scale is part of the measure.
+    from tamis.quality.blur import load_for_sharpness
+
+    path = tmp_path / "wide.jpg"
+    _bars(width=800, height=600).save(path, quality=95)
+    gray = load_for_sharpness(path)
+    assert gray.mode == "L"
+    assert gray.size == (400, 300)
 
 
 def test_scores_are_stored_and_read_back_as_a_pair(tmp_path):
@@ -238,6 +275,20 @@ def test_scores_are_stored_and_read_back_as_a_pair(tmp_path):
     reloaded = QualityStore()
     reloaded.load(tmp_path)
     assert reloaded.get(tmp_path / "a.jpg") == PhotoScores(62, 88)
+
+
+def test_an_unmeasurable_photo_round_trips_as_null(tmp_path):
+    # Not zero on disk either: a later read must be able to tell "no edge to
+    # measure" from "measured, and out of focus".
+    store = _store(tmp_path)
+    store.set_many({"sky.jpg": PhotoScores(quality=40, blur=None)}, store.generation)
+    path, data = store.prepare_save()
+    QualityStore.write_payload(path, data)
+    assert json.loads(path.read_text())["scores"]["sky.jpg"] == {"quality": 40, "blur": None}
+
+    reloaded = QualityStore()
+    reloaded.load(tmp_path)
+    assert reloaded.get(tmp_path / "sky.jpg") == PhotoScores(40, None)
 
 
 def _patched_clip(monkeypatch, behaviour):

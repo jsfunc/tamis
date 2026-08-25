@@ -48,29 +48,33 @@ class QualityScoreWorker(QRunnable):
             self.signals.finished.emit({}, self.generation, "")
             return
         try:
-            from tamis.quality.blur import blur_score
+            from tamis.quality.blur import load_for_sharpness, sharpness_score
             from tamis.quality.scorer import load_for_scoring, score_images
             from tamis.quality.store import PhotoScores
 
             images = []
+            sharpness: list[int | None] = []
             kept: list[Path] = []
             for path in self.paths:
                 try:
-                    images.append(load_for_scoring(path))
-                    kept.append(path)
+                    image = load_for_scoring(path)
+                    # Sharpness needs its own, larger decode: edge width is
+                    # measured in pixels, and the 224px-bound image the model
+                    # wants has none left to measure. This is the expensive
+                    # half of the batch -- roughly 550ms against 80ms for the
+                    # aesthetic score -- and it is why they are not shared.
+                    sharp = sharpness_score(load_for_sharpness(path))
                 except Exception:
                     # One unreadable photo must not lose the whole batch; it
                     # simply stays unscored and can be retried later.
                     continue
-            # Sharpness comes off the images already decoded here, so it costs
-            # about a millisecond each and no extra file read. It must be
-            # measured on this draft-decoded image rather than a finished
-            # thumbnail -- see tamis.quality.blur.
-            blurs = [blur_score(image) for image in images]
+                images.append(image)
+                sharpness.append(sharp)
+                kept.append(path)
             qualities = score_images(images)
             result = {
                 path.name: PhotoScores(quality=quality, blur=blur)
-                for path, quality, blur in zip(kept, qualities, blurs)
+                for path, quality, blur in zip(kept, qualities, sharpness)
             }
             error = ""
         except Exception as exc:

@@ -16,6 +16,7 @@ from PyInstaller.utils.hooks import collect_all
 # so the omission only shows up in a release.
 datas = [
     ("docs/face_recognition.html", "docs"),
+    ("docs/sharpness.html", "docs"),
     ("docs/architecture.html", "docs"),
 ]
 binaries = []

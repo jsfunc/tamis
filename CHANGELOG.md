@@ -6,6 +6,64 @@ work landed, not necessarily when a version was tagged.
 
 ## [Unreleased]
 
+## [2.6.0]
+
+### Changed
+
+- **The sharpness score is computed a completely different way.** It now
+  measures how many pixels a real edge takes to cross &mdash; the 10% to 90%
+  rise distance of a sustained step &mdash; instead of how much a deliberate
+  re-blur changed the image. The previous metric divided one sum of absolute
+  differences by another, and grain inflates such a sum without limit: on
+  synthetic tiles pure noise scored 0.911 against 0.800 for a perfectly sharp
+  noise-free edge, and adding a little grain took a featureless wall from 0.147
+  to 0.809. Noise was the metric's *maximum*, not sharpness. On a real folder
+  that rated a set of deliberately blurry photos above a set of good ones
+  (AUC 0.55, near chance) and gave a sharp portrait with a defocused background
+  a score of 8 out of 100. The new measure builds its step from a difference of
+  two averages rather than a sum of differences, so averaging cancels grain
+  instead of accumulating it; the same folder now separates at AUC 0.87.
+- Four tests decide whether a window holds an edge at all, each added because a
+  real photo scored wrongly without it: the step must carry real amplitude
+  against its own local scatter (removes grain, with no noise model and no
+  per-photo calibration); it must be *contained* in the window (a step that
+  already happened inside a plateau otherwise measures as an instant, and
+  therefore perfect, rise); it must climb *monotonically* (noise that merely
+  touches the far level on one excursion is not an edge); and it must not
+  *overshoot* (a bright rim before a dark region is a sharpening halo, which
+  phone JPEGs apply heavily, and it fakes a fast transition).
+- Photos are measured at **half** their stored resolution. Edge width is a
+  pixel count, so the decode scale is part of the measure. Half resolution is
+  four times cheaper than native and reordered almost nothing over a 28-photo
+  trial (rank correlation 0.955); quarter resolution was tested and rejected,
+  leaving barely one usable pixel of range.
+- Sharpness now costs about **0.6 seconds per photo** rather than about a
+  millisecond, because it needs its own decode instead of riding along on the
+  224px image the aesthetic model wants. Scores are cached per folder as
+  before, so this is paid once.
+- Cached scores from older versions are discarded and recomputed, as the
+  recorded model id has changed.
+
+### Added
+
+- **A "How Sharpness Is Scored" page in the Help menu**, covering what the
+  number measures, why grain is the hard part, how to read the scale, and what
+  the score cannot tell you.
+- **Sharpness can now report "no evidence" instead of a number.** A photo with
+  no readable edge &mdash; an empty sky, a smooth wall &mdash; shows a dash
+  under its thumbnail and reads *not measurable* in the status bar. This is not
+  the same answer as zero, which means "measured, and out of focus": a sharp
+  photograph of a blank wall is indistinguishable from a blurred one at this
+  level, and sorting by sharpness now leaves such photos at the end rather than
+  sinking them below genuinely soft frames.
+
+### Known limitation
+
+- The score is the average of the five sharpest tiles anywhere in the frame,
+  and nothing ties those tiles to the subject. A motion-blurred portrait in
+  front of a sunlit window still scores high &mdash; on the window. Read a high
+  score as "something here is in focus" rather than as a verdict.
+
 ## [2.5.1]
 
 ### Added

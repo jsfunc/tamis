@@ -171,7 +171,11 @@ class _ThumbnailDelegate(QStyledItemDelegate):
         """
         bold = QFont(base_font)
         bold.setBold(True)
-        quality, blur = str(scores.quality), str(scores.blur)
+        # An en dash where sharpness could not be measured at all: a blank
+        # would read as "still scoring" and a 0 as "out of focus", and it is
+        # neither.
+        quality = str(scores.quality)
+        blur = "–" if scores.blur is None else str(scores.blur)
         gap = QFontMetrics(base_font).horizontalAdvance("  ")
         quality_width = QFontMetrics(bold).horizontalAdvance(quality)
         blur_width = QFontMetrics(base_font).horizontalAdvance(blur)

@@ -463,6 +463,13 @@ class MainWindow(QMainWindow):
             face_docs_action.triggered.connect(self._open_face_recognition_docs)
             help_menu.addAction(face_docs_action)
 
+        if QUALITY_AVAILABLE:
+            # Behind the flag, unlike the architecture doc: without the extra
+            # there is no sharpness number on screen for it to explain.
+            sharpness_docs_action = QAction("How Sharpness Is Scored", self)
+            sharpness_docs_action.triggered.connect(self._open_sharpness_docs)
+            help_menu.addAction(sharpness_docs_action)
+
         # Not behind RECOGNITION_AVAILABLE: this one describes the whole app,
         # so it's just as relevant to a build without the optional extra.
         architecture_action = QAction("Architecture Docs", self)
@@ -526,6 +533,9 @@ class MainWindow(QMainWindow):
 
     def _open_face_recognition_docs(self) -> None:
         self._open_docs("docs/face_recognition.html", "Face Recognition Docs")
+
+    def _open_sharpness_docs(self) -> None:
+        self._open_docs("docs/sharpness.html", "How Sharpness Is Scored")
 
     def _open_architecture_docs(self) -> None:
         self._open_docs("docs/architecture.html", "Architecture Docs")
@@ -749,7 +759,8 @@ class MainWindow(QMainWindow):
         if QUALITY_AVAILABLE:
             scores = self.quality_ctl.score_for(item.path)
             if scores is not None:
-                message += f"  |  Quality: {scores.quality}  Sharpness: {scores.blur}"
+                sharpness = "not measurable" if scores.blur is None else scores.blur
+                message += f"  |  Quality: {scores.quality}  Sharpness: {sharpness}"
             # The slider has no numeric label of its own -- it and the sort
             # button share one thumbnail's height -- so the active cutoff is
             # reported here, where it stays visible while browsing.
@@ -803,9 +814,15 @@ class MainWindow(QMainWindow):
 
     def _sharpness_sort_key(self, item):
         """Sharpest first, unscored photos last -- see `_score_sort_key` for
-        why unscored is a bucket of its own rather than a zero."""
+        why unscored is a bucket of its own rather than a zero.
+
+        A photo the measure could not read at all -- no edge anywhere, so
+        `blur` is None -- joins that same trailing bucket. Sorting it as zero
+        would rank an empty sky below a genuinely out-of-focus frame, which is
+        a claim the measure never made.
+        """
         scores = self.quality_ctl.score_for(item.path) if QUALITY_AVAILABLE else None
-        if scores is None:
+        if scores is None or scores.blur is None:
             return (1, 0, item.path)
         return (0, -scores.blur, item.path)
 
